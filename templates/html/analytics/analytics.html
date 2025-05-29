@@ -1,0 +1,468 @@
+{% extends 'layouts/base.html' %}
+{% load static %}
+
+{% block title %}Analytics Dashboard - {% endblock %}
+
+{% block head_tags %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+<style>
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    .stat-card.revenue {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    .stat-card.customers {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+    .stat-card.average {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+    .stat-card.growth {
+        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+    }
+    .kpi-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+  <!-- Analytics Dashboard Container -->
+  <div class="w-full px-6 py-6 mx-auto">
+    
+    <!-- Page Header -->
+    <div class="flex flex-wrap -mx-3 mb-6">
+      <div class="w-full max-w-full px-3">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border">
+          <div class="flex-auto p-6">
+            <div class="flex flex-wrap items-center justify-between">
+              <div class="flex-none w-2/3 max-w-full">
+                <div>
+                  <h1 class="mb-2 font-bold text-2xl">Analytics Dashboard</h1>
+                  <p class="mb-0 font-sans leading-normal text-sm">Comprehensive insights into your billing data.</p>
+                </div>
+              </div>
+              
+              <!-- Date Range Filter -->
+              <div class="px-3 text-right basis-1/3">
+                <div class="flex items-center space-x-4">
+                  <form method="get" class="flex items-center space-x-2">
+                    <label class="text-xs font-bold text-slate-700">Date Range:</label>
+                    <select name="date_range" 
+                            class="focus:shadow-soft-primary-outline text-sm leading-5.6 ease-soft appearance-none rounded-lg border border-solid border-gray-300 bg-white bg-clip-padding px-3 py-2 font-normal text-gray-700 outline-none transition-all focus:border-fuchsia-300 focus:outline-none"
+                            onchange="this.form.submit()">
+                      <option value="30" {% if date_range == '30' %}selected{% endif %}>Last 30 Days</option>
+                      <option value="90" {% if date_range == '90' %}selected{% endif %}>Last 90 Days</option>
+                      <option value="180" {% if date_range == '180' %}selected{% endif %}>Last 6 Months</option>
+                      <option value="365" {% if date_range == '365' %}selected{% endif %}>Last Year</option>
+                      <option value="all" {% if date_range == 'all' %}selected{% endif %}>All Time</option>
+                    </select>
+                  </form>
+                  
+                  <a href="{% url 'analytics:export_data' %}" 
+                     class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-blue-600 to-cyan-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                    <i class="fas fa-download mr-2"></i> Export Data
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key Performance Indicators -->
+    <div class="flex flex-wrap -mx-3 mb-6">
+      
+      <!-- Total Revenue -->
+      <div class="w-full max-w-full px-3 mb-6 sm:w-1/2 sm:flex-none xl:mb-0 xl:w-1/4">
+        <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-tl from-red-600 to-rose-400 shadow-soft-xl rounded-2xl bg-clip-border overflow-hidden">
+          <div class="flex-auto p-4">
+            <div class="flex flex-row -mx-3">
+              <div class="flex-none w-2/3 max-w-full px-3">
+                <div>
+                  <p class="mb-0 font-sans font-semibold leading-normal text-sm text-white opacity-80">Total Revenue</p>
+                  <h5 class="mb-0 font-bold text-white text-2xl">${{ analytics.total_revenue|floatformat:2 }}</h5>
+                  {% if analytics.revenue_growth %}
+                  <p class="mb-0 text-white opacity-80 text-xs">
+                    <i class="ni ni-bold-up mr-1"></i>
+                    +{{ analytics.revenue_growth|floatformat:1 }}% from last period
+                  </p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="px-3 text-right basis-1/3">
+                <div class="inline-block w-12 h-12 text-center rounded-lg bg-gradient-to-tl from-red-500 to-yellow-400">
+                  <i class="ni ni-money-coins text-lg relative top-3.5 text-white"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Total Customers -->
+      <div class="w-full max-w-full px-3 mb-6 sm:w-1/2 sm:flex-none xl:mb-0 xl:w-1/4">
+        <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-tl from-blue-600 to-cyan-400 shadow-soft-xl rounded-2xl bg-clip-border overflow-hidden">
+          <div class="flex-auto p-4">
+            <div class="flex flex-row -mx-3">
+              <div class="flex-none w-2/3 max-w-full px-3">
+                <div>
+                  <p class="mb-0 font-sans font-semibold leading-normal text-sm text-white opacity-80">Total Customers</p>
+                  <h5 class="mb-0 font-bold text-white text-2xl">{{ analytics.total_customers }}</h5>
+                  {% if analytics.customer_growth %}
+                  <p class="mb-0 text-white opacity-80 text-xs">
+                    <i class="ni ni-bold-up mr-1"></i>
+                    +{{ analytics.customer_growth|floatformat:1 }}% new customers
+                  </p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="px-3 text-right basis-1/3">
+                <div class="inline-block w-12 h-12 text-center rounded-lg bg-gradient-to-tl from-blue-500 to-violet-500">
+                  <i class="ni ni-circle-08 text-lg relative top-3.5 text-white"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Average Invoice Value -->
+      <div class="w-full max-w-full px-3 mb-6 sm:w-1/2 sm:flex-none xl:mb-0 xl:w-1/4">
+        <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-tl from-green-600 to-lime-400 shadow-soft-xl rounded-2xl bg-clip-border overflow-hidden">
+          <div class="flex-auto p-4">
+            <div class="flex flex-row -mx-3">
+              <div class="flex-none w-2/3 max-w-full px-3">
+                <div>
+                  <p class="mb-0 font-sans font-semibold leading-normal text-sm text-white opacity-80">Avg Invoice Value</p>
+                  <h5 class="mb-0 font-bold text-white text-2xl">${{ analytics.average_invoice|floatformat:2 }}</h5>
+                  {% if analytics.avg_invoice_change %}
+                  <p class="mb-0 text-white opacity-80 text-xs">
+                    <i class="ni ni-{% if analytics.avg_invoice_change > 0 %}bold-up{% else %}bold-down{% endif %} mr-1"></i>
+                    {% if analytics.avg_invoice_change > 0 %}+{% endif %}{{ analytics.avg_invoice_change|floatformat:1 }}%
+                  </p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="px-3 text-right basis-1/3">
+                <div class="inline-block w-12 h-12 text-center rounded-lg bg-gradient-to-tl from-green-500 to-teal-400">
+                  <i class="ni ni-paper-diploma text-lg relative top-3.5 text-white"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Monthly Growth -->
+      <div class="w-full max-w-full px-3 mb-6 sm:w-1/2 sm:flex-none xl:mb-0 xl:w-1/4">
+        <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-tl from-orange-500 to-yellow-500 shadow-soft-xl rounded-2xl bg-clip-border overflow-hidden">
+          <div class="flex-auto p-4">
+            <div class="flex flex-row -mx-3">
+              <div class="flex-none w-2/3 max-w-full px-3">
+                <div>
+                  <p class="mb-0 font-sans font-semibold leading-normal text-sm text-white opacity-80">Monthly Growth</p>
+                  <h5 class="mb-0 font-bold text-white text-2xl">{{ analytics.monthly_growth|floatformat:1 }}%</h5>
+                  <p class="mb-0 text-white opacity-80 text-xs">
+                    Revenue trend this month
+                  </p>
+                </div>
+              </div>
+              <div class="px-3 text-right basis-1/3">
+                <div class="inline-block w-12 h-12 text-center rounded-lg bg-gradient-to-tl from-orange-500 to-red-600">
+                  <i class="ni ni-chart-bar-32 text-lg relative top-3.5 text-white"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="flex flex-wrap -mx-3 mb-6">
+      
+      <!-- Revenue Trend Chart -->
+      <div class="w-full max-w-full px-3 lg:w-1/2 lg:flex-none">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border mb-6">
+          <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
+            <h6 class="flex items-center">
+              <i class="ni ni-chart-pie-35 mr-2 text-blue-600"></i>
+              Revenue Trend
+            </h6>
+            <p class="text-sm leading-normal text-slate-400">Monthly revenue over time</p>
+          </div>
+          <div class="flex-auto p-6">
+            <div class="relative h-80">
+              <canvas id="revenueChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Customer Distribution Chart -->
+      <div class="w-full max-w-full px-3 lg:w-1/2 lg:flex-none">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border mb-6">
+          <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
+            <h6 class="flex items-center">
+              <i class="ni ni-world-2 mr-2 text-green-600"></i>
+              Top Customers
+            </h6>
+            <p class="text-sm leading-normal text-slate-400">Revenue by customer</p>
+          </div>
+          <div class="flex-auto p-6">
+            <div class="relative h-80">
+              <canvas id="customerChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payment Status Analysis -->
+    <div class="flex flex-wrap -mx-3 mb-6">
+      <div class="w-full max-w-full px-3">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border">
+          <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
+            <h6 class="flex items-center">
+              <i class="ni ni-credit-card mr-2 text-purple-600"></i>
+              Payment Status Distribution
+            </h6>
+            <p class="text-sm leading-normal text-slate-400">Overview of payment statuses</p>
+          </div>
+          <div class="flex-auto p-6">
+            <div class="relative h-80">
+              <canvas id="paymentStatusChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Activity & Insights -->
+    <div class="flex flex-wrap -mx-3">
+      
+      <!-- Recent Transactions -->
+      <div class="w-full max-w-full px-3 lg:w-1/2 lg:flex-none">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border mb-6">
+          <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
+            <h6>Recent Transactions</h6>
+            <p class="text-sm leading-normal text-slate-400">Latest billing records</p>
+          </div>
+          <div class="flex-auto p-0">
+            <div class="p-6 pb-0">
+              {% if recent_records %}
+                {% for record in recent_records %}
+                <div class="flex items-center border-b border-gray-100 py-3">
+                  <div class="w-10 h-10 mr-4 flex items-center justify-center rounded-full bg-gradient-to-tl from-purple-700 to-pink-500 text-white">
+                    <i class="ni ni-single-02 text-sm"></i>
+                  </div>
+                  <div class="flex-1">
+                    <h6 class="mb-1 text-sm leading-normal">{{ record.customer_name }}</h6>
+                    <p class="mb-0 text-xs leading-tight text-slate-400">
+                      <i class="ni ni-calendar-grid-58 mr-1"></i>
+                      {{ record.invoice_date|date:"M d, Y" }}
+                    </p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-sm font-semibold leading-normal text-slate-700">${{ record.invoice_amount|floatformat:2 }}</p>
+                    <span class="text-xs font-semibold leading-tight
+                               {% if record.payment_status == 'PAID' %}text-green-600
+                               {% elif record.payment_status == 'PENDING' %}text-yellow-600
+                               {% else %}text-red-600{% endif %}">
+                      {{ record.get_payment_status_display }}
+                    </span>
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="text-center py-6">
+                  <i class="ni ni-folder-17 text-3xl text-slate-400 mb-3"></i>
+                  <p class="text-sm text-slate-400">No recent transactions found</p>
+                </div>
+              {% endif %}
+            </div>
+            <div class="border-black/12.5 border-t-0 border-solid p-6 text-center">
+              <a href="{% url 'analytics:record_list' %}" 
+                 class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-purple-700 to-pink-500 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                <i class="ni ni-bold-right mr-1"></i> View All Records
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Insights -->
+      <div class="w-full max-w-full px-3 lg:w-1/2 lg:flex-none">
+        <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border mb-6">
+          <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
+            <h6>AI Insights</h6>
+            <p class="text-sm leading-normal text-slate-400">Smart analytics and recommendations</p>
+          </div>
+          <div class="flex-auto p-6">
+            
+            <div class="space-y-4">
+              {% if analytics.insights %}
+                {% for insight in analytics.insights %}
+                <div class="p-4 rounded-lg bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200">
+                  <div class="flex items-start">
+                    <div class="w-8 h-8 mr-3 flex items-center justify-center rounded-full bg-gradient-to-tl from-blue-600 to-cyan-400 text-white">
+                      <i class="ni ni-bulb-61 text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                      <h6 class="text-sm font-semibold text-slate-700">{{ insight.title }}</h6>
+                      <p class="text-xs text-slate-500 mt-1">{{ insight.description }}</p>
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="p-4 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200">
+                  <div class="flex items-start">
+                    <div class="w-8 h-8 mr-3 flex items-center justify-center rounded-full bg-gradient-to-tl from-purple-700 to-pink-500 text-white">
+                      <i class="ni ni-atom text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                      <h6 class="text-sm font-semibold text-slate-700">Generate Insights</h6>
+                      <p class="text-xs text-slate-500 mt-1">Use our AI analytics assistant to discover patterns in your data.</p>
+                      <a href="{% url 'analytics:chat_analytics' %}" 
+                         class="inline-block mt-2 px-3 py-1 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-purple-700 to-pink-500 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                        <i class="ni ni-chat-round mr-1"></i> Start Chat
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="mt-6 text-center">
+              <a href="{% url 'analytics:chat_analytics' %}" 
+                 class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                <i class="ni ni-chat-round mr-1"></i> Ask AI Analytics
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% include 'includes/footer.html' %}
+
+  </div>
+
+{% endblock content %}
+
+<!-- Chart.js Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Revenue Trend Chart
+    const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+    new Chart(revenueCtx, {
+        type: 'line',
+        data: {
+            labels: {{ chart_data.revenue_labels|safe }},
+            datasets: [{
+                label: 'Revenue',
+                data: {{ chart_data.revenue_data|safe }},
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Customer Distribution Chart
+    const customerCtx = document.getElementById('customerChart').getContext('2d');
+    new Chart(customerCtx, {
+        type: 'doughnut',
+        data: {
+            labels: {{ chart_data.customer_labels|safe }},
+            datasets: [{
+                data: {{ chart_data.customer_data|safe }},
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.8)',
+                    'rgba(54, 162, 235, 0.8)',
+                    'rgba(255, 205, 86, 0.8)',
+                    'rgba(75, 192, 192, 0.8)',
+                    'rgba(153, 102, 255, 0.8)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+
+    // Payment Status Chart
+    const paymentCtx = document.getElementById('paymentStatusChart').getContext('2d');
+    new Chart(paymentCtx, {
+        type: 'bar',
+        data: {
+            labels: {{ chart_data.payment_labels|safe }},
+            datasets: [{
+                label: 'Count',
+                data: {{ chart_data.payment_data|safe }},
+                backgroundColor: [
+                    'rgba(34, 197, 94, 0.8)',   // Green for Paid
+                    'rgba(234, 179, 8, 0.8)',   // Yellow for Pending
+                    'rgba(239, 68, 68, 0.8)',   // Red for Overdue
+                    'rgba(156, 163, 175, 0.8)'  // Gray for Other
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+});
+</script> 

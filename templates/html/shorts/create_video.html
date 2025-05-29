@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% load custom_tags %}
+{% load tz %}
+{% load static %}
+
+{% block title %}Create Content{% endblock title %}
+{% block description %}Form to create content{% endblock description %}
+
+{% block content %}
+    <div class="tw-bg-[#fff9f9] tw-text-black tw-fixed tw-top-0 tw-z-[5000] 
+                    tw-flex tw-place-content-center 
+                    tw-place-items-center tw-h-full tw-w-full">
+        
+        <form action="{% url 'create_video' %}" 
+                    class="tw-w-[350px] tw-min-h-[400px] tw-bg-white
+                        tw-rounded-xl tw-p-5 tw-text-center tw-flex tw-flex-col tw-gap-3 tw-shadow-xl
+                        tw-place-content-center max-md:tw-w-full tw-place-items-center
+                        "
+                    id="content-form"
+                    method="POST"
+            >   
+                {% csrf_token %}
+                <div class="tw-text-3xl tw-mb-[5%] tw-m-2">
+                    Create Content
+                </div>
+             
+                <div id="content-alert" class="tw-hidden error-container" role="alert">
+                    <!-- Display any errors here -->
+                </div>
+
+                <div class="tw-flex tw-w-full">
+                    <input type="text" class="input tw-w-full"
+                        placeholder="Enter topic" name="topic" maxlength="200" required autofocus>
+                </div>
+                
+                <div class="tw-flex tw-w-full">
+                    <textarea class="input tw-w-full tw-h-[100px] tw-p-3"
+                        placeholder="Enter goal" name="goal" maxlength="500" required></textarea>
+                </div>
+
+                <div class="tw-flex tw-w-full">
+                    <input type="number" class="input tw-w-full"
+                        placeholder="Duration (in seconds)" name="duration" min="1" max="300" required>
+                </div>
+
+                <button type="submit" id="content-btn" class="btn !tw-w-[200px] 
+                                                            tw-m-3 hover:tw-scale-[1.02]
+                                                            tw-duration-[0.3s]">
+                    Submit
+                </button>
+        </form>
+
+    </div>
+{% endblock content %}
