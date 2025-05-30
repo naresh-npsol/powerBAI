@@ -207,11 +207,24 @@ class ColumnMappingView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         upload = self.get_object()
         
+        # Ensure upload has a date format set (for backward compatibility)
+        if not upload.date_format:
+            upload.date_format = "DD/MM/YYYY"
+            upload.save(update_fields=["date_format"])
+        
         # Get existing mappings
         mappings = {
             mapping.mapped_field: mapping.original_column
             for mapping in MappedField.objects.filter(upload=upload)
         }
+        
+        # Read actual file columns from the uploaded file
+        file_columns = self._get_file_columns(upload)
+        
+        # Get intelligent suggestions if no mappings exist yet
+        suggested_mappings = {}
+        if not mappings and file_columns:
+            suggested_mappings = self._suggest_column_mappings(file_columns)
         
         # Required billing fields with their current mappings
         required_fields = [
@@ -293,33 +306,185 @@ class ColumnMappingView(LoginRequiredMixin, TemplateView):
             },
         ]
         
+        # Update field mappings with suggestions
+        for field in required_fields + optional_fields:
+            if not field["mapped_column"] and field["key"] in suggested_mappings:
+                field["suggested_column"] = suggested_mappings[field["key"]]
+        
         context.update({
             "upload": upload,
             "mappings": mappings,
             "required_fields": required_fields,
             "optional_fields": optional_fields,
-            "file_columns": [
-                # Sample columns - in a real implementation, these would be read from the uploaded file
-                "Customer Name", "Customer_Name", "Client", "Company",
-                "Invoice Number", "Invoice_ID", "INV_NUM", "Bill_Number",
-                "Amount", "Total", "Invoice_Amount", "Bill_Amount", "Cost",
-                "Date", "Invoice_Date", "Bill_Date", "Created_Date",
-                "Payment_Status", "Status", "Paid", "Payment_Method",
-                "Due_Date", "Payment_Due", "Description", "Notes",
-                "Email", "Customer_Email", "Phone", "Customer_Phone"
-            ],
+            "file_columns": file_columns,
+            "suggested_mappings": suggested_mappings,
+            "current_date_format": upload.date_format,
         })
         
         return context
+    
+    def _get_file_columns(self, upload: BillingDataUpload) -> List[str]:
+        """Extract column names from the uploaded file."""
+        try:
+            import pandas as pd
+            import os
+            
+            file_path = upload.file.path
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                print(f"File does not exist at path: {file_path}")
+                return []
+            
+            # Read file headers based on file type
+            if file_path.endswith(".csv"):
+                # Try different encodings for CSV files
+                encodings = ["utf-8", "latin-1", "cp1252", "iso-8859-1"]
+                df = None
+                
+                for encoding in encodings:
+                    try:
+                        df = pd.read_csv(file_path, nrows=0, encoding=encoding)
+                        print(f"Successfully read CSV with encoding: {encoding}")
+                        break
+                    except (UnicodeDecodeError, UnicodeError) as e:
+                        print(f"Failed to read with encoding {encoding}: {e}")
+                        continue
+                
+                if df is None:
+                    # Fallback: try with default encoding
+                    try:
+                        df = pd.read_csv(file_path, nrows=0)
+                        print("Successfully read CSV with default encoding")
+                    except Exception as e:
+                        print(f"Failed to read CSV with default encoding: {e}")
+                        return []
+                    
+            elif file_path.endswith((".xlsx", ".xls")):
+                try:
+                    df = pd.read_excel(file_path, nrows=0)
+                    print("Successfully read Excel file")
+                except Exception as e:
+                    print(f"Failed to read Excel file: {e}")
+                    return []
+            else:
+                print(f"Unsupported file format: {file_path}")
+                return []
+            
+            # Get column names and clean them
+            columns = list(df.columns)
+            print(f"Raw columns from file: {columns}")
+            
+            # Clean column names (remove extra spaces, handle unnamed columns)
+            cleaned_columns = []
+            for i, col in enumerate(columns):
+                if pd.isna(col) or str(col).startswith("Unnamed:"):
+                    cleaned_columns.append(f"Column_{i+1}")
+                else:
+                    cleaned_columns.append(str(col).strip())
+            
+            print(f"Cleaned columns: {cleaned_columns}")
+            return cleaned_columns
+            
+        except ImportError:
+            print("Error: pandas library not available")
+            return []
+        except Exception as e:
+            # Log the error (in production, use proper logging)
+            print(f"Error reading file columns: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            return []
+    
+    def _suggest_column_mappings(self, file_columns: List[str]) -> Dict[str, str]:
+        """Suggest column mappings based on column name similarity."""
+        suggestions = {}
+        
+        # Define mapping patterns for common column variations
+        mapping_patterns = {
+            "customer_name": [
+                "customer_name", "customer name", "client_name", "client name", 
+                "company", "company_name", "customer", "client", "name"
+            ],
+            "invoice_number": [
+                "invoice_number", "invoice number", "invoice_id", "invoice id",
+                "inv_num", "inv_number", "bill_number", "bill number", "invoice"
+            ],
+            "amount": [
+                "amount", "total", "invoice_amount", "invoice amount", 
+                "bill_amount", "bill amount", "cost", "price", "value"
+            ],
+            "date": [
+                "date", "invoice_date", "invoice date", "bill_date", "bill date",
+                "created_date", "created date", "timestamp"
+            ],
+            "payment_status": [
+                "payment_status", "payment status", "status", "paid", "payment"
+            ],
+            "description": [
+                "description", "notes", "memo", "comment", "details"
+            ],
+            "customer_email": [
+                "email", "customer_email", "customer email", "client_email", "e_mail"
+            ],
+            "due_date": [
+                "due_date", "due date", "payment_due", "payment due", "due"
+            ]
+        }
+        
+        # Find best matches for each predefined field
+        for field, patterns in mapping_patterns.items():
+            best_match = None
+            best_score = 0
+            
+            for file_col in file_columns:
+                file_col_lower = file_col.lower().replace("_", " ").replace("-", " ")
+                
+                for pattern in patterns:
+                    pattern_lower = pattern.lower()
+                    
+                    # Exact match gets highest score
+                    if file_col_lower == pattern_lower:
+                        best_match = file_col
+                        best_score = 100
+                        break
+                    
+                    # Partial match scoring
+                    if pattern_lower in file_col_lower:
+                        score = len(pattern_lower) / len(file_col_lower) * 80
+                        if score > best_score:
+                            best_match = file_col
+                            best_score = score
+                    
+                    elif file_col_lower in pattern_lower:
+                        score = len(file_col_lower) / len(pattern_lower) * 70
+                        if score > best_score:
+                            best_match = file_col
+                            best_score = score
+                
+                if best_score >= 100:  # Exact match found
+                    break
+            
+            # Only suggest if confidence is high enough
+            if best_match and best_score >= 60:
+                suggestions[field] = best_match
+        
+        return suggestions
     
     def post(self, request, *args, **kwargs):
         """Handle column mapping form submission."""
         upload = self.get_object()
         
+        # Save date format preference
+        date_format = request.POST.get("date_format", "DD/MM/YYYY")
+        upload.date_format = date_format
+        upload.save(update_fields=["date_format"])
+        
         # Clear existing mappings
         MappedField.objects.filter(upload=upload).delete()
         
         # Create new mappings
+        mappings_created = 0
         for field_name, column_name in request.POST.items():
             if field_name.startswith("mapping_") and column_name:
                 mapped_field = field_name.replace("mapping_", "")
@@ -331,8 +496,16 @@ class ColumnMappingView(LoginRequiredMixin, TemplateView):
                     mapped_field=mapped_field,
                     is_required=is_required
                 )
+                mappings_created += 1
         
-        messages.success(request, "Column mappings saved successfully!")
+        # Update upload status to MAPPED if mappings were created
+        if mappings_created > 0:
+            upload.status = "MAPPED"
+            upload.save()
+            messages.success(request, f"Column mappings and date format saved successfully! {mappings_created} fields mapped. You can now process the upload.")
+        else:
+            messages.warning(request, "No column mappings were created. Please map at least one field.")
+        
         return redirect("analytics:upload_detail", upload_id=upload.pk)
 
 
@@ -349,6 +522,7 @@ class ProcessUploadView(LoginRequiredMixin, View):
             
             # Update status to processing
             upload.status = "PROCESSING"
+            upload.processing_started_at = timezone.now()
             upload.save()
             
             # Process in background (for now, we'll do it synchronously)
@@ -379,17 +553,46 @@ class ProcessUploadView(LoginRequiredMixin, View):
                 upload.save()
                 return
             
+            # Check if required fields are mapped
+            required_fields = ["customer_name", "invoice_number", "amount", "date"]
+            missing_required = [field for field in required_fields if field not in mappings]
+            
+            if missing_required:
+                upload.status = "ERROR"
+                upload.error_message = f"Missing required field mappings: {', '.join(missing_required)}"
+                upload.save()
+                return
+            
             # Read file data
             file_path = upload.file.path
-            if file_path.endswith(".csv"):
-                import pandas as pd
-                df = pd.read_csv(file_path)
-            elif file_path.endswith((".xlsx", ".xls")):
-                import pandas as pd
-                df = pd.read_excel(file_path)
-            else:
+            try:
+                if file_path.endswith(".csv"):
+                    import pandas as pd
+                    # Try different encodings for CSV files
+                    encodings = ["utf-8", "latin-1", "cp1252", "iso-8859-1"]
+                    df = None
+                    
+                    for encoding in encodings:
+                        try:
+                            df = pd.read_csv(file_path, encoding=encoding)
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+                    
+                    if df is None:
+                        df = pd.read_csv(file_path)  # Fallback to default
+                        
+                elif file_path.endswith((".xlsx", ".xls")):
+                    import pandas as pd
+                    df = pd.read_excel(file_path)
+                else:
+                    upload.status = "ERROR"
+                    upload.error_message = "Unsupported file format"
+                    upload.save()
+                    return
+            except Exception as e:
                 upload.status = "ERROR"
-                upload.error_message = "Unsupported file format"
+                upload.error_message = f"Error reading file: {str(e)}"
                 upload.save()
                 return
             
@@ -404,28 +607,62 @@ class ProcessUploadView(LoginRequiredMixin, View):
                 try:
                     # Extract data based on mappings
                     record_data = {}
+                    
+                    # Process each mapped field
                     for field, column in mappings.items():
                         if column in row and pd.notna(row[column]):
                             value = row[column]
                             
                             # Type conversion for specific fields
-                            if field in ["amount", "tax_amount", "discount_amount", "total_amount"]:
+                            if field in ["amount", "tax_amount", "discount", "unit_price"]:
                                 try:
-                                    record_data[field] = float(str(value).replace("$", "").replace(",", ""))
+                                    # Clean monetary values
+                                    cleaned_value = str(value).replace("$", "").replace(",", "").strip()
+                                    record_data[field] = float(cleaned_value) if cleaned_value else 0.0
                                 except (ValueError, TypeError):
                                     record_data[field] = 0.0
+                            elif field in ["quantity"]:
+                                try:
+                                    record_data[field] = float(str(value).strip()) if str(value).strip() else None
+                                except (ValueError, TypeError):
+                                    record_data[field] = None
                             elif field in ["date", "due_date", "payment_date"]:
                                 try:
-                                    record_data[field] = pd.to_datetime(value).date()
+                                    # Use the upload's date format preference for parsing
+                                    record_data[field] = self._parse_date_with_format(value, upload.date_format)
                                 except (ValueError, TypeError):
                                     record_data[field] = None
                             else:
                                 record_data[field] = str(value).strip()
+                        else:
+                            # Handle missing values for required fields
+                            if field in required_fields:
+                                if field in ["amount"]:
+                                    record_data[field] = 0.0
+                                elif field in ["date"]:
+                                    record_data[field] = None
+                                else:
+                                    record_data[field] = ""
+                    
+                    # Validate required fields have values
+                    validation_errors = []
+                    if not record_data.get("customer_name"):
+                        validation_errors.append("customer_name is required")
+                    if not record_data.get("invoice_number"):
+                        validation_errors.append("invoice_number is required")
+                    if record_data.get("amount") is None or record_data.get("amount") < 0:
+                        validation_errors.append("amount must be a positive number")
+                    if not record_data.get("date"):
+                        validation_errors.append("date is required")
+                    
+                    if validation_errors:
+                        errors.append(f"Row {index + 1}: {'; '.join(validation_errors)}")
+                        continue
                     
                     # Create billing record
                     BillingRecord.objects.create(
                         upload=upload,
-                        user=upload.user,
+                        row_number=index + 1,
                         **record_data
                     )
                     created_count += 1
@@ -433,14 +670,20 @@ class ProcessUploadView(LoginRequiredMixin, View):
                 except Exception as e:
                     errors.append(f"Row {index + 1}: {str(e)}")
                 
-                # Update progress
-                upload.processed_rows = created_count
-                upload.save()
+                # Update progress every 10 rows
+                if (index + 1) % 10 == 0:
+                    upload.processed_rows = created_count
+                    upload.save()
+            
+            # Final update
+            upload.processed_rows = created_count
             
             # Update final status
             if errors:
                 upload.status = "COMPLETED" if created_count > 0 else "ERROR"
                 upload.error_message = "; ".join(errors[:10])  # Keep only first 10 errors
+                if created_count > 0:
+                    upload.error_message += f" ({len(errors)} total errors, {created_count} records created)"
             else:
                 upload.status = "COMPLETED"
             
@@ -450,7 +693,58 @@ class ProcessUploadView(LoginRequiredMixin, View):
         except Exception as e:
             upload.status = "ERROR"
             upload.error_message = f"Processing error: {str(e)}"
+            upload.processing_completed_at = timezone.now()
             upload.save()
+
+    def _parse_date_with_format(self, date_value, date_format: str):
+        """Parse date value according to the specified format."""
+        import pandas as pd
+        from datetime import datetime
+        
+        if pd.isna(date_value) or not date_value:
+            return None
+            
+        date_str = str(date_value).strip()
+        if not date_str:
+            return None
+        
+        # Define format mappings
+        format_patterns = {
+            "DD/MM/YYYY": ["%d/%m/%Y", "%d/%m/%y"],
+            "MM/DD/YYYY": ["%m/%d/%Y", "%m/%d/%y"],
+            "YYYY-MM-DD": ["%Y-%m-%d"],
+            "DD-MM-YYYY": ["%d-%m-%Y", "%d-%m-%y"],
+            "MM-DD-YYYY": ["%m-%d-%Y", "%m-%d-%y"],
+            "DD.MM.YYYY": ["%d.%m.%Y", "%d.%m.%y"],
+        }
+        
+        # Auto-detect format
+        if date_format == "auto":
+            all_patterns = []
+            for patterns in format_patterns.values():
+                all_patterns.extend(patterns)
+        else:
+            all_patterns = format_patterns.get(date_format, ["%d/%m/%Y"])
+        
+        # Try to parse with each pattern
+        for pattern in all_patterns:
+            try:
+                parsed_date = datetime.strptime(date_str, pattern)
+                return parsed_date.date()
+            except (ValueError, TypeError):
+                continue
+        
+        # Fallback to pandas datetime parsing
+        try:
+            # For Indian format, specify dayfirst=True
+            dayfirst = date_format in ["DD/MM/YYYY", "DD-MM-YYYY", "DD.MM.YYYY"] or date_format == "auto"
+            parsed_date = pd.to_datetime(date_str, dayfirst=dayfirst, errors="coerce")
+            if pd.notna(parsed_date):
+                return parsed_date.date()
+        except Exception:
+            pass
+        
+        return None
 
 
 class DataPreviewView(LoginRequiredMixin, TemplateView):
@@ -490,7 +784,8 @@ class AnalyticsView(LoginRequiredMixin, TemplateView):
         records = BillingRecord.objects.filter(upload__user=self.request.user)
         
         if records.exists():
-            calculator = AnalyticsCalculator(records)
+            # Pass the user object instead of the records QuerySet
+            calculator = AnalyticsCalculator(self.request.user)
             
             # Get analytics data
             analytics_data = {
@@ -537,7 +832,8 @@ class ChartsDataView(LoginRequiredMixin, View):
         if not records.exists():
             return JsonResponse({"error": "No data available"}, status=404)
         
-        calculator = AnalyticsCalculator(records)
+        # Pass the user object instead of the records QuerySet
+        calculator = AnalyticsCalculator(request.user)
         
         # Get chart data based on request parameters
         chart_type = request.GET.get("type", "revenue_trend")
@@ -566,7 +862,8 @@ class SummaryStatsView(LoginRequiredMixin, View):
         if not records.exists():
             return JsonResponse({"error": "No data available"}, status=404)
         
-        calculator = AnalyticsCalculator(records)
+        # Pass the user object instead of the records QuerySet
+        calculator = AnalyticsCalculator(request.user)
         stats = calculator.get_summary_stats()
         
         return JsonResponse(stats)
@@ -587,7 +884,7 @@ class ExportDataView(LoginRequiredMixin, View):
         
         # Write header
         writer.writerow([
-            "Invoice Number", "Customer Name", "Amount", "Invoice Date",
+            "Invoice Number", "Customer Name", "Amount", "Date",
             "Payment Status", "Due Date", "Payment Date", "Description"
         ])
         
@@ -597,7 +894,7 @@ class ExportDataView(LoginRequiredMixin, View):
                 record.invoice_number,
                 record.customer_name,
                 record.amount,
-                record.invoice_date,
+                record.date,
                 record.payment_status,
                 record.due_date,
                 record.payment_date,
@@ -631,7 +928,7 @@ class ExportRecordsView(LoginRequiredMixin, View):
         
         # Write header
         writer.writerow([
-            "Invoice Number", "Customer Name", "Amount", "Invoice Date",
+            "Invoice Number", "Customer Name", "Amount", "Date",
             "Payment Status", "Due Date", "Payment Date", "Description"
         ])
         
@@ -641,7 +938,7 @@ class ExportRecordsView(LoginRequiredMixin, View):
                 record.invoice_number,
                 record.customer_name,
                 record.amount,
-                record.invoice_date,
+                record.date,
                 record.payment_status,
                 record.due_date,
                 record.payment_date,
@@ -682,22 +979,22 @@ class BillingRecordListView(LoginRequiredMixin, ListView):
         if date_range:
             today = timezone.now().date()
             if date_range == "today":
-                queryset = queryset.filter(invoice_date=today)
+                queryset = queryset.filter(date=today)
             elif date_range == "week":
                 week_ago = today - timedelta(days=7)
-                queryset = queryset.filter(invoice_date__gte=week_ago)
+                queryset = queryset.filter(date__gte=week_ago)
             elif date_range == "month":
                 month_ago = today - timedelta(days=30)
-                queryset = queryset.filter(invoice_date__gte=month_ago)
+                queryset = queryset.filter(date__gte=month_ago)
             elif date_range == "quarter":
                 quarter_ago = today - timedelta(days=90)
-                queryset = queryset.filter(invoice_date__gte=quarter_ago)
+                queryset = queryset.filter(date__gte=quarter_ago)
             elif date_range == "year":
                 year_ago = today - timedelta(days=365)
-                queryset = queryset.filter(invoice_date__gte=year_ago)
+                queryset = queryset.filter(date__gte=year_ago)
         
         # Sorting
-        sort = self.request.GET.get("sort", "-invoice_date")
+        sort = self.request.GET.get("sort", "-date")
         queryset = queryset.order_by(sort)
         
         return queryset
@@ -711,7 +1008,7 @@ class RecordDetailView(LoginRequiredMixin, DetailView):
     pk_url_kwarg = "record_id"
 
     def get_queryset(self) -> QuerySet[BillingRecord]:
-        return BillingRecord.objects.filter(user=self.request.user)
+        return BillingRecord.objects.filter(upload__user=self.request.user)
 
 
 class RecordEditView(LoginRequiredMixin, UpdateView):
@@ -719,7 +1016,7 @@ class RecordEditView(LoginRequiredMixin, UpdateView):
     model = BillingRecord
     template_name = "analytics/record_edit.html"
     fields = [
-        "customer_name", "customer_email", "invoice_number", "invoice_date",
+        "customer_name", "customer_email", "invoice_number", "date",
         "due_date", "amount", "tax_amount", "discount_amount", "total_amount",
         "payment_status", "payment_date", "payment_method", "description"
     ]
@@ -727,7 +1024,7 @@ class RecordEditView(LoginRequiredMixin, UpdateView):
     pk_url_kwarg = "record_id"
 
     def get_queryset(self) -> QuerySet[BillingRecord]:
-        return BillingRecord.objects.filter(user=self.request.user)
+        return BillingRecord.objects.filter(upload__user=self.request.user)
 
     def get_success_url(self) -> str:
         return reverse("analytics:record_detail", kwargs={"record_id": self.object.pk})
@@ -735,6 +1032,23 @@ class RecordEditView(LoginRequiredMixin, UpdateView):
     def form_valid(self, form) -> HttpResponse:
         messages.success(self.request, "Billing record updated successfully.")
         return super().form_valid(form)
+
+
+class RecordDeleteView(LoginRequiredMixin, DeleteView):
+    """Delete an individual billing record."""
+    model = BillingRecord
+    template_name = "analytics/record_confirm_delete.html"
+    context_object_name = "record"
+    pk_url_kwarg = "record_id"
+    success_url = reverse_lazy("analytics:record_list")
+
+    def get_queryset(self) -> QuerySet[BillingRecord]:
+        return BillingRecord.objects.filter(upload__user=self.request.user)
+
+    def delete(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        record = self.get_object()
+        messages.success(request, f"Record '{record.invoice_number}' has been deleted successfully.")
+        return super().delete(request, *args, **kwargs)
 
 
 class BulkDeleteRecordsView(LoginRequiredMixin, View):
@@ -750,7 +1064,7 @@ class BulkDeleteRecordsView(LoginRequiredMixin, View):
             # Delete records
             deleted_count, _ = BillingRecord.objects.filter(
                 id__in=record_ids,
-                user=request.user
+                upload__user=request.user
             ).delete()
             
             messages.success(request, f"Successfully deleted {deleted_count} billing records.")
@@ -784,8 +1098,8 @@ class ChatAnalyticsView(LoginRequiredMixin, TemplateView):
         
         if records.exists():
             date_range = {
-                "start": records.order_by("invoice_date").first().invoice_date,
-                "end": records.order_by("-invoice_date").first().invoice_date,
+                "start": records.order_by("date").first().date,
+                "end": records.order_by("-date").first().date,
             }
             data_summary["date_range"] = date_range
         
@@ -951,7 +1265,8 @@ class RevenueTrendAPIView(LoginRequiredMixin, View):
         if not records.exists():
             return JsonResponse({"data": []})
         
-        calculator = AnalyticsCalculator(records)
+        # Pass the user object instead of the records QuerySet
+        calculator = AnalyticsCalculator(request.user)
         period = request.GET.get("period", "monthly")
         trend_data = calculator.get_revenue_trend(period)
         
@@ -968,7 +1283,8 @@ class CustomerAnalysisAPIView(LoginRequiredMixin, View):
         if not records.exists():
             return JsonResponse({"data": []})
         
-        calculator = AnalyticsCalculator(records)
+        # Pass the user object instead of the records QuerySet
+        calculator = AnalyticsCalculator(request.user)
         limit = int(request.GET.get("limit", 10))
         customer_data = calculator.get_top_customers(limit)
         
@@ -985,7 +1301,8 @@ class PaymentStatusAPIView(LoginRequiredMixin, View):
         if not records.exists():
             return JsonResponse({"data": []})
         
-        calculator = AnalyticsCalculator(records)
+        # Pass the user object instead of the records QuerySet
+        calculator = AnalyticsCalculator(request.user)
         status_data = calculator.get_payment_status_distribution()
         
         return JsonResponse(status_data)
@@ -1150,7 +1467,7 @@ def ajax_chat_query(request: HttpRequest) -> JsonResponse:
         
         if "revenue" in query_text.lower():
             monthly_revenue = records.filter(
-                invoice_date__gte=timezone.now().date() - timedelta(days=30)
+                date__gte=timezone.now().date() - timedelta(days=30)
             ).aggregate(total=Sum("amount"))["total"] or 0
             response_text += f"\n\nMonthly revenue (last 30 days): ${monthly_revenue:,.2f}"
         
@@ -1247,8 +1564,8 @@ def ajax_analytics_data(request: HttpRequest) -> JsonResponse:
             month_end = month_start + timedelta(days=30)
             
             monthly_revenue = records.filter(
-                invoice_date__gte=month_start,
-                invoice_date__lt=month_end
+                date__gte=month_start,
+                date__lt=month_end
             ).aggregate(total=Sum("amount"))["total"] or 0
             
             monthly_data.append(float(monthly_revenue))
@@ -1303,4 +1620,99 @@ def ajax_analytics_data(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         return JsonResponse({
             "error": f"Error getting analytics data: {str(e)}"
-        }, status=500) 
+        }, status=500)
+
+
+class DebugFileColumnsAPIView(LoginRequiredMixin, View):
+    """Debug API view to test file column reading."""
+    
+    def get(self, request, upload_id):
+        """Return debug information about file column reading."""
+        try:
+            upload = get_object_or_404(
+                BillingDataUpload,
+                pk=upload_id,
+                user=request.user
+            )
+            
+            import pandas as pd
+            import os
+            
+            file_path = upload.file.path
+            debug_info = {
+                "file_path": file_path,
+                "file_exists": os.path.exists(file_path),
+                "file_size": upload.file_size,
+                "original_filename": upload.original_filename,
+                "upload_status": upload.status,
+            }
+            
+            if os.path.exists(file_path):
+                try:
+                    # Try to read file
+                    if file_path.endswith(".csv"):
+                        df = pd.read_csv(file_path, nrows=0)
+                        debug_info["csv_success"] = True
+                    elif file_path.endswith((".xlsx", ".xls")):
+                        df = pd.read_excel(file_path, nrows=0)
+                        debug_info["excel_success"] = True
+                    
+                    debug_info["columns"] = list(df.columns)
+                    debug_info["column_count"] = len(df.columns)
+                    
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    debug_info["success"] = False
+            
+            # Get existing mappings
+            mappings = MappedField.objects.filter(upload=upload)
+            debug_info["existing_mappings"] = [
+                {
+                    "original_column": m.original_column,
+                    "mapped_field": m.mapped_field,
+                    "is_required": m.is_required
+                }
+                for m in mappings
+            ]
+            
+            return JsonResponse(debug_info)
+            
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+class TestDateParsingView(LoginRequiredMixin, View):
+    """Test view to verify date parsing with different formats."""
+    
+    def get(self, request):
+        """Test date parsing functionality."""
+        test_dates = [
+            ("15/03/2024", "DD/MM/YYYY"),
+            ("03/15/2024", "MM/DD/YYYY"),
+            ("2024-03-15", "YYYY-MM-DD"),
+            ("15-03-2024", "DD-MM-YYYY"),
+            ("03-15-2024", "MM-DD-YYYY"),
+            ("15.03.2024", "DD.MM.YYYY"),
+        ]
+        
+        results = []
+        for date_str, format_type in test_dates:
+            try:
+                # Create a temporary instance to use the method
+                view = ProcessUploadView()
+                parsed_date = view._parse_date_with_format(date_str, format_type)
+                results.append({
+                    "input": date_str,
+                    "format": format_type,
+                    "parsed": str(parsed_date) if parsed_date else "Failed to parse",
+                    "success": parsed_date is not None
+                })
+            except Exception as e:
+                results.append({
+                    "input": date_str,
+                    "format": format_type,
+                    "parsed": f"Error: {str(e)}",
+                    "success": False
+                })
+        
+        return JsonResponse({"test_results": results}) 

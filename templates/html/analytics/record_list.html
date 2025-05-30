@@ -260,41 +260,41 @@
                       <input type="checkbox" id="select-all" class="rounded">
                     </th>
                     <th class="px-6 py-3 font-bold text-left uppercase align-middle bg-transparent border-b border-gray-200 shadow-none text-xxs border-b-solid tracking-none whitespace-nowrap text-slate-400 opacity-70">
-                      <a href="?{% url_params request 'order_by' 'customer_name' %}" class="text-slate-400 hover:text-slate-600">
+                      <a href="?sort=customer_name{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}" class="text-slate-400 hover:text-slate-600">
                         Customer
-                        {% if request.GET.order_by == 'customer_name' %}
+                        {% if request.GET.sort == 'customer_name' %}
                           <i class="fas fa-sort-up"></i>
-                        {% elif request.GET.order_by == '-customer_name' %}
+                        {% elif request.GET.sort == '-customer_name' %}
                           <i class="fas fa-sort-down"></i>
                         {% endif %}
                       </a>
                     </th>
                     <th class="px-6 py-3 font-bold text-left uppercase align-middle bg-transparent border-b border-gray-200 shadow-none text-xxs border-b-solid tracking-none whitespace-nowrap text-slate-400 opacity-70">
-                      <a href="?{% url_params request 'order_by' 'invoice_number' %}" class="text-slate-400 hover:text-slate-600">
+                      <a href="?sort=invoice_number{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}" class="text-slate-400 hover:text-slate-600">
                         Invoice
-                        {% if request.GET.order_by == 'invoice_number' %}
+                        {% if request.GET.sort == 'invoice_number' %}
                           <i class="fas fa-sort-up"></i>
-                        {% elif request.GET.order_by == '-invoice_number' %}
+                        {% elif request.GET.sort == '-invoice_number' %}
                           <i class="fas fa-sort-down"></i>
                         {% endif %}
                       </a>
                     </th>
                     <th class="px-6 py-3 font-bold text-left uppercase align-middle bg-transparent border-b border-gray-200 shadow-none text-xxs border-b-solid tracking-none whitespace-nowrap text-slate-400 opacity-70">
-                      <a href="?{% url_params request 'order_by' 'amount' %}" class="text-slate-400 hover:text-slate-600">
+                      <a href="?sort=amount{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}" class="text-slate-400 hover:text-slate-600">
                         Amount
-                        {% if request.GET.order_by == 'amount' %}
+                        {% if request.GET.sort == 'amount' %}
                           <i class="fas fa-sort-up"></i>
-                        {% elif request.GET.order_by == '-amount' %}
+                        {% elif request.GET.sort == '-amount' %}
                           <i class="fas fa-sort-down"></i>
                         {% endif %}
                       </a>
                     </th>
                     <th class="px-6 py-3 font-bold text-left uppercase align-middle bg-transparent border-b border-gray-200 shadow-none text-xxs border-b-solid tracking-none whitespace-nowrap text-slate-400 opacity-70">
-                      <a href="?{% url_params request 'order_by' 'invoice_date' %}" class="text-slate-400 hover:text-slate-600">
+                      <a href="?sort=date{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}" class="text-slate-400 hover:text-slate-600">
                         Date
-                        {% if request.GET.order_by == 'invoice_date' %}
+                        {% if request.GET.sort == 'date' %}
                           <i class="fas fa-sort-up"></i>
-                        {% elif request.GET.order_by == '-invoice_date' %}
+                        {% elif request.GET.sort == '-date' %}
                           <i class="fas fa-sort-down"></i>
                         {% endif %}
                       </a>
@@ -344,7 +344,7 @@
                     <td class="p-2 align-middle bg-transparent border-b whitespace-nowrap shadow-transparent">
                       <div class="px-4">
                         <p class="mb-0 text-sm leading-tight text-slate-600">
-                          {{ record.invoice_date|date:"M d, Y"|default:"-" }}
+                          {{ record.date|date:"M d, Y"|default:"-" }}
                         </p>
                       </div>
                     </td>
@@ -358,12 +358,12 @@
                     </td>
                     <td class="p-2 text-center align-middle bg-transparent border-b whitespace-nowrap shadow-transparent">
                       <div class="flex justify-center space-x-1">
-                        <a href="{% url 'analytics:record_detail' record.pk %}" 
+                        <a href="{% url 'analytics:record_detail' record_id=record.pk %}" 
                            class="inline-block px-2 py-1 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-blue-600 to-cyan-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102"
                            title="View Details">
                           <i class="fas fa-eye"></i>
                         </a>
-                        <a href="{% url 'analytics:record_edit' record.pk %}" 
+                        <a href="{% url 'analytics:record_edit' record_id=record.pk %}" 
                            class="inline-block px-2 py-1 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-orange-600 to-orange-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102"
                            title="Edit Record">
                           <i class="fas fa-edit"></i>
@@ -416,7 +416,7 @@
               </div>
               <div class="flex space-x-1">
                 {% if page_obj.has_previous %}
-                <a href="?{% url_params request 'page' page_obj.previous_page_number %}" 
+                <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}" 
                    class="inline-block px-3 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
                   <i class="fas fa-chevron-left"></i>
                 </a>
@@ -428,7 +428,7 @@
                     {{ num }}
                   </span>
                   {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
-                  <a href="?{% url_params request 'page' num %}" 
+                  <a href="?page={{ num }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}" 
                      class="inline-block px-3 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
                     {{ num }}
                   </a>
@@ -436,7 +436,7 @@
                 {% endfor %}
                 
                 {% if page_obj.has_next %}
-                <a href="?{% url_params request 'page' page_obj.next_page_number %}" 
+                <a href="?page={{ page_obj.next_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.date_range %}&date_range={{ request.GET.date_range }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}" 
                    class="inline-block px-3 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
                   <i class="fas fa-chevron-right"></i>
                 </a>

@@ -209,6 +209,14 @@
                 <span class="text-sm text-slate-600">File Size</span>
                 <span class="text-sm font-medium text-slate-700">{{ upload.file.size|filesizeformat }}</span>
               </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm text-slate-600">Date Format</span>
+                <span class="text-sm font-medium text-slate-700">
+                  <span class="inline-block px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md">
+                    {{ upload.get_date_format_display|default:"DD/MM/YYYY (Indian Format)" }}
+                  </span>
+                </span>
+              </div>
               {% if upload.description %}
               <div class="py-2">
                 <span class="text-sm text-slate-600 block mb-1">Description</span>

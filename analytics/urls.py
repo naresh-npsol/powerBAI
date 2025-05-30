@@ -33,6 +33,7 @@ urlpatterns = [
     path("records/", views.BillingRecordListView.as_view(), name="record_list"),
     path("record/<int:record_id>/", views.RecordDetailView.as_view(), name="record_detail"),
     path("record/<int:record_id>/edit/", views.RecordEditView.as_view(), name="record_edit"),
+    path("record/<int:record_id>/delete/", views.RecordDeleteView.as_view(), name="delete_record"),
     path("records/bulk-delete/", views.BulkDeleteRecordsView.as_view(), name="bulk_delete_records"),
     
     # ChatGPT Analytics
@@ -48,6 +49,7 @@ urlpatterns = [
     path("ajax/chat/", views.ajax_chat_query, name="ajax_chat"),
     path("ajax/upload-status/<uuid:upload_id>/", views.ajax_upload_status, name="ajax_upload_status"),
     path("ajax/analytics-data/", views.ajax_analytics_data, name="ajax_analytics_data"),
+    path("api/debug-columns/<uuid:upload_id>/", views.DebugFileColumnsAPIView.as_view(), name="debug_file_columns"),
     path("api/validate-data/<uuid:pk>/", views.ValidateDataAPIView.as_view(), name="validate_data_api"),
     path("api/sample-data/<uuid:pk>/", views.SampleDataAPIView.as_view(), name="sample_data_api"),
     path("api/charts/data/", views.ChartsDataView.as_view(), name="charts_data_api"),
@@ -58,6 +60,7 @@ urlpatterns = [
     path("api/customer-search/", views.CustomerSearchAPIView.as_view(), name="customer_search_api"),
     path("api/invoice-search/", views.InvoiceSearchAPIView.as_view(), name="invoice_search_api"),
     path("api/notifications/", views.NotificationsAPIView.as_view(), name="notifications_api"),
+    path("api/test-date-parsing/", views.TestDateParsingView.as_view(), name="test_date_parsing"),
     
     # Settings and configuration
     path("settings/", views.SettingsView.as_view(), name="settings"),

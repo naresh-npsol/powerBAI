@@ -23,9 +23,10 @@ class BillingDataUpload(models.Model):
     
     class UploadStatus(models.TextChoices):
         PENDING = "pending", "Pending"
+        MAPPED = "mapped", "Mapped"
         PROCESSING = "processing", "Processing"
-        PROCESSED = "processed", "Processed"
-        FAILED = "failed", "Failed"
+        COMPLETED = "completed", "Completed"
+        ERROR = "error", "Error"
         CANCELLED = "cancelled", "Cancelled"
     
     # Core fields
@@ -93,6 +94,22 @@ class BillingDataUpload(models.Model):
         null=True, 
         blank=True,
         help_text="When processing completed"
+    )
+    
+    # Date format preference
+    date_format = models.CharField(
+        max_length=20,
+        default="DD/MM/YYYY",
+        choices=[
+            ("DD/MM/YYYY", "DD/MM/YYYY (Indian Format)"),
+            ("MM/DD/YYYY", "MM/DD/YYYY (US Format)"),
+            ("YYYY-MM-DD", "YYYY-MM-DD (ISO Format)"),
+            ("DD-MM-YYYY", "DD-MM-YYYY (European Format)"),
+            ("MM-DD-YYYY", "MM-DD-YYYY (US Format with Dash)"),
+            ("DD.MM.YYYY", "DD.MM.YYYY (German Format)"),
+            ("auto", "Auto-detect Format"),
+        ],
+        help_text="Date format used in the uploaded file"
     )
     
     class Meta:
