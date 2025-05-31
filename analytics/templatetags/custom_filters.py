@@ -88,9 +88,9 @@ def currency(value: Union[str, int, float]) -> str:
     """
     try:
         num_value = float(value)
-        return f"${num_value:,.2f}"
+        return f"₹{num_value:,.2f}"
     except (TypeError, ValueError):
-        return "$0.00"
+        return "₹0.00"
 
 
 @register.filter

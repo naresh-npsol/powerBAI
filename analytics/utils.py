@@ -331,7 +331,7 @@ class DataProcessor:
                 # Handle different number formats
                 if isinstance(raw_value, str):
                     # Remove common currency symbols and separators
-                    cleaned_value = raw_value.replace("$", "").replace(",", "").strip()
+                    cleaned_value = raw_value.replace("₹", "").replace(",", "").strip()
                     return Decimal(cleaned_value)
                 else:
                     return Decimal(str(raw_value))

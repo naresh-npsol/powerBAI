@@ -11,23 +11,34 @@
       <div class="w-full max-w-full px-3">
         <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border">
           <div class="flex-auto p-6">
-            <div class="flex flex-wrap -mx-3">
-              <div class="flex-none w-2/3 max-w-full px-3">
-                <div>
-                  <h1 class="mb-2 font-bold text-2xl">Uploaded Files</h1>
-                  <p class="mb-0 font-sans leading-normal text-sm">Manage and monitor your data uploads.</p>
+            <div class="flex flex-col lg:flex-row lg:items-center">
+              <!-- Title Card -->
+              <div class="w-full lg:w-1/2 mb-4 lg:mb-0">
+                <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-r from-gray-50 to-gray-100">
+                  <div class="flex-auto">
+                    <div class="text-center lg:text-left">
+                      <h1 class="mb-2 my-4 font-bold text-lg sm:text-xl md:text-2xl lg:text-3xl xl:text-4xl">Uploaded Files</h1>
+                      <!-- <p class="mb-0 font-sans leading-normal text-sm">Manage and monitor your data uploads.</p> -->
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div class="px-3 text-right basis-1/3">
-                <div class="flex space-x-2">
-                  <a href="{% url 'analytics:dashboard' %}" 
-                     class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
-                    <i class="fas fa-arrow-left mr-1"></i> Dashboard
-                  </a>
-                  <a href="{% url 'analytics:file_upload' %}" 
-                     class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-purple-700 to-pink-500 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
-                    <i class="fas fa-upload mr-1"></i> Upload File
-                  </a>
+              
+              <!-- Buttons Card -->
+              <div class="w-full lg:w-1/2">
+                <div class="relative flex flex-col min-w-0 break-words bg-gradient-to-r from-blue-50 to-purple-50">
+                  <div class="flex-auto">
+                    <div class="flex flex-col lg:flex-row justify-center lg:justify-end items-center space-y-3 lg:space-y-0 lg:space-x-3">
+                      <a href="{% url 'analytics:dashboard' %}" 
+                         class="inline-block mx-4 px-6 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-slate-600 to-slate-300 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                        <i class="fas fa-arrow-left mr-2"></i> Dashboard
+                      </a>
+                      <a href="{% url 'analytics:file_upload' %}" 
+                         class="inline-block my-4 px-6 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-purple-700 to-pink-500 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                        <i class="fas fa-upload mr-2"></i> Upload File
+                      </a>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -37,7 +48,7 @@
     </div>
 
     <!-- Filters and Search -->
-    <div class="flex flex-wrap -mx-3 mb-6">
+    <!-- <div class="flex flex-wrap -mx-3 mb-6">
       <div class="w-full max-w-full px-3">
         <div class="relative flex flex-col min-w-0 break-words bg-white shadow-soft-xl rounded-2xl bg-clip-border">
           <div class="border-black/12.5 mb-0 rounded-t-2xl border-b-0 border-solid bg-white p-6 pb-0">
@@ -45,7 +56,7 @@
           </div>
           <div class="flex-auto p-6">
             <form method="get" class="flex flex-wrap gap-4 items-end">
-              <!-- Search -->
+     
               <div class="flex-1 min-w-64">
                 <label for="search" class="inline-block mb-2 ml-1 font-bold text-xs text-slate-700">Search</label>
                 <input type="text" name="search" id="search" value="{{ request.GET.search }}"
@@ -53,7 +64,7 @@
                        placeholder="Search by filename...">
               </div>
 
-              <!-- Status Filter -->
+       
               <div class="min-w-48">
                 <label for="status" class="inline-block mb-2 ml-1 font-bold text-xs text-slate-700">Status</label>
                 <select name="status" id="status" 
@@ -67,14 +78,14 @@
                 </select>
               </div>
 
-              <!-- Date Filter -->
+
               <div class="min-w-48">
                 <label for="date_from" class="inline-block mb-2 ml-1 font-bold text-xs text-slate-700">Date From</label>
                 <input type="date" name="date_from" id="date_from" value="{{ request.GET.date_from }}"
                        class="focus:shadow-soft-primary-outline text-sm leading-5.6 ease-soft block w-full appearance-none rounded-lg border border-solid border-gray-300 bg-white bg-clip-padding px-3 py-2 font-normal text-gray-700 outline-none transition-all focus:border-fuchsia-300 focus:outline-none">
               </div>
 
-              <!-- Action Buttons -->
+       
               <div class="flex space-x-2">
                 <button type="submit" 
                         class="inline-block px-4 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-blue-600 to-cyan-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
@@ -89,7 +100,7 @@
           </div>
         </div>
       </div>
-    </div>
+    </div> -->
 
     <!-- Upload Cards -->
     {% if uploads %}
@@ -195,12 +206,12 @@
                   {% endif %}
                   
                   <a href="{% url 'analytics:upload_detail' upload_id=upload.pk %}"
-                     class="text-slate-400 font-bold text-xs mr-3">
+                     class="inline-block my-4 px-6 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-purple-700 to-pink-500 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
                     View
                   </a>
                   
                   <a href="{% url 'analytics:upload_delete' upload_id=upload.pk %}"
-                     class="inline-block px-3 py-1 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-red-600 to-rose-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
+                     class="mx-4 inline-block my-4 px-6 py-2 text-xs font-bold text-center text-white uppercase align-middle transition-all bg-gradient-to-tl from-red-500 to-rose-400 border-0 rounded-lg shadow-soft-md bg-150 leading-pro ease-soft-in tracking-tight-soft hover:shadow-soft-xs hover:scale-102">
                     <i class="ni ni-fat-remove mr-1"></i> Delete
                   </a>
                 </div>

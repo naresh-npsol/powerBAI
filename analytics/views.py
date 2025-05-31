@@ -45,6 +45,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
         """Add dashboard statistics to the context."""
         context = super().get_context_data(**kwargs)
+        context["segment"] = "index"
         
         # Get recent uploads
         recent_uploads = BillingDataUpload.objects.filter(
@@ -83,6 +84,12 @@ class FileUploadView(LoginRequiredMixin, CreateView):
     template_name = "analytics/file_upload.html"
     fields = ["file"]
     success_url = reverse_lazy("analytics:upload_list")
+    
+    def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
+        """Add segment to context."""
+        context = super().get_context_data(**kwargs)
+        context["segment"] = "file_upload"
+        return context
     
     def form_valid(self, form):
         """Process the uploaded file and set the user."""
@@ -146,6 +153,11 @@ class UploadListView(LoginRequiredMixin, ListView):
             user=self.request.user
         ).order_by("-upload_date")
 
+    def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["segment"] = "uploads"
+        return context
+
 
 class UploadDetailView(LoginRequiredMixin, DetailView):
     """Display detailed information about a specific upload."""
@@ -205,6 +217,7 @@ class ColumnMappingView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
         """Add upload and mapping data to context."""
         context = super().get_context_data(**kwargs)
+        context["segment"] = "uploads"
         upload = self.get_object()
         
         # Ensure upload has a date format set (for backward compatibility)
@@ -617,7 +630,7 @@ class ProcessUploadView(LoginRequiredMixin, View):
                             if field in ["amount", "tax_amount", "discount", "unit_price"]:
                                 try:
                                     # Clean monetary values
-                                    cleaned_value = str(value).replace("$", "").replace(",", "").strip()
+                                    cleaned_value = str(value).replace("₹", "").replace(",", "").strip()
                                     record_data[field] = float(cleaned_value) if cleaned_value else 0.0
                                 except (ValueError, TypeError):
                                     record_data[field] = 0.0
@@ -779,45 +792,103 @@ class AnalyticsView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
         """Add analytics data to context."""
         context = super().get_context_data(**kwargs)
+        context["segment"] = "analytics"
         
         # Get user's billing records
         records = BillingRecord.objects.filter(upload__user=self.request.user)
         
         if records.exists():
-            # Pass the user object instead of the records QuerySet
-            calculator = AnalyticsCalculator(self.request.user)
+            # Get recent records for display
+            recent_records = records.order_by("-created_at")[:5]
             
-            # Get analytics data
+            # Calculate aggregated analytics
+            total_revenue = records.aggregate(total=Sum("amount"))["total"] or 0
+            total_customers = records.values("customer_name").distinct().count()
+            average_invoice = records.aggregate(avg=Avg("amount"))["avg"] or 0
+            total_records = records.count()
+            
+            # Get top customers data for chart
+            top_customers = list(records.values("customer_name").annotate(
+                total_revenue=Sum("amount")
+            ).order_by("-total_revenue")[:10])
+            
+            top_customers_labels = [c["customer_name"] for c in top_customers]
+            top_customers_data = [float(c["total_revenue"]) for c in top_customers]
+            
+            # Payment status distribution
+            payment_status_data = list(records.values("payment_status").annotate(
+                count=Count("id")
+            ).order_by("payment_status"))
+            
+            payment_status_labels = []
+            payment_status_counts = []
+            for item in payment_status_data:
+                status = item["payment_status"] or "Unknown"
+                payment_status_labels.append(status)
+                payment_status_counts.append(item["count"])
+            
+            # Monthly revenue trend (last 6 months)
+            from datetime import datetime, timedelta
+            from django.utils import timezone
+            
+            monthly_revenue_labels = []
+            monthly_revenue_data = []
+            
+            for i in range(5, -1, -1):
+                month_start = (timezone.now().date().replace(day=1) - timedelta(days=i*30))
+                month_end = month_start + timedelta(days=30)
+                
+                monthly_rev = records.filter(
+                    date__gte=month_start,
+                    date__lt=month_end
+                ).aggregate(total=Sum("amount"))["total"] or 0
+                
+                monthly_revenue_labels.append(month_start.strftime("%b %Y"))
+                monthly_revenue_data.append(float(monthly_rev))
+            
+            # Create analytics_data structure that matches template expectations
             analytics_data = {
-                "total_revenue": records.aggregate(total=Sum("amount"))["total"] or 0,
-                "total_customers": records.values("customer_name").distinct().count(),
-                "average_invoice": records.aggregate(avg=Avg("amount"))["avg"] or 0,
-                "monthly_growth": 5.2,  # Example data
-                "revenue_growth": 8.5,  # Example data
-                "customer_growth": 12.3,  # Example data
-                "avg_invoice_change": 3.1,  # Example data
-                "top_customers": records.values("customer_name").annotate(
-                    total_revenue=Sum("amount"),
-                    invoice_count=Count("id")
-                ).order_by("-total_revenue")[:10],
-                "recent_records": records.order_by("-created_at")[:5],
-                "monthly_labels": json.dumps(["Jan", "Feb", "Mar", "Apr", "May", "Jun"]),
-                "monthly_revenue": json.dumps([10000, 12000, 11500, 13000, 14500, 16000]),
-                "customer_labels": json.dumps([c["customer_name"] for c in records.values("customer_name").distinct()[:10]]),
-                "customer_revenue": json.dumps([5000, 4500, 4000, 3500, 3000, 2500, 2000, 1500, 1000, 500]),
-                "payment_status_labels": json.dumps(["Paid", "Pending", "Overdue"]),
-                "payment_status_counts": json.dumps([60, 30, 10]),
-                "monthly_invoice_counts": json.dumps([15, 18, 16, 20, 22, 25]),
+                "total_revenue": float(total_revenue),
+                "total_customers": total_customers,
+                "average_invoice": float(average_invoice),
+                "total_records": total_records,
+                # Chart data as JSON strings for JavaScript
+                "monthly_revenue_labels": json.dumps(monthly_revenue_labels),
+                "monthly_revenue_data": json.dumps(monthly_revenue_data),
+                "payment_status_labels": json.dumps(payment_status_labels),
+                "payment_status_data": json.dumps(payment_status_counts),
+                "top_customers_labels": json.dumps(top_customers_labels),
+                "top_customers_data": json.dumps(top_customers_data),
             }
             
             context.update({
-                "analytics": analytics_data,
+                "analytics_data": analytics_data,  # Changed from "analytics" to "analytics_data"
                 "has_data": True,
-                "total_records": records.count(),
+                "recent_records": recent_records,
+                "total_records": total_records,
                 "date_range": self.request.GET.get("date_range", "30"),
             })
         else:
-            context["has_data"] = False
+            # Empty data structure for no data case
+            analytics_data = {
+                "total_revenue": 0.0,
+                "total_customers": 0,
+                "average_invoice": 0.0,
+                "total_records": 0,
+                "monthly_revenue_labels": json.dumps([]),
+                "monthly_revenue_data": json.dumps([]),
+                "payment_status_labels": json.dumps([]),
+                "payment_status_data": json.dumps([]),
+                "top_customers_labels": json.dumps([]),
+                "top_customers_data": json.dumps([]),
+            }
+            
+            context.update({
+                "analytics_data": analytics_data,
+                "has_data": False,
+                "recent_records": [],
+                "total_records": 0,
+            })
         
         return context
 
@@ -969,35 +1040,121 @@ class BillingRecordListView(LoginRequiredMixin, ListView):
                 Q(description__icontains=search)
             )
         
-        # Filter by payment status
-        status = self.request.GET.get("status")
-        if status:
-            queryset = queryset.filter(payment_status=status)
+        # Filter by upload
+        upload_filter = self.request.GET.get("upload")
+        if upload_filter:
+            queryset = queryset.filter(upload_id=upload_filter)
         
-        # Date range filter
-        date_range = self.request.GET.get("date_range")
-        if date_range:
-            today = timezone.now().date()
-            if date_range == "today":
-                queryset = queryset.filter(date=today)
-            elif date_range == "week":
-                week_ago = today - timedelta(days=7)
-                queryset = queryset.filter(date__gte=week_ago)
-            elif date_range == "month":
-                month_ago = today - timedelta(days=30)
-                queryset = queryset.filter(date__gte=month_ago)
-            elif date_range == "quarter":
-                quarter_ago = today - timedelta(days=90)
-                queryset = queryset.filter(date__gte=quarter_ago)
-            elif date_range == "year":
-                year_ago = today - timedelta(days=365)
-                queryset = queryset.filter(date__gte=year_ago)
+        # Date range filters
+        date_from = self.request.GET.get("date_from")
+        date_to = self.request.GET.get("date_to")
+        
+        if date_from:
+            from datetime import datetime
+            try:
+                date_from_obj = datetime.strptime(date_from, "%Y-%m-%d").date()
+                queryset = queryset.filter(date__gte=date_from_obj)
+            except ValueError:
+                pass
+        
+        if date_to:
+            from datetime import datetime
+            try:
+                date_to_obj = datetime.strptime(date_to, "%Y-%m-%d").date()
+                queryset = queryset.filter(date__lte=date_to_obj)
+            except ValueError:
+                pass
         
         # Sorting
         sort = self.request.GET.get("sort", "-date")
         queryset = queryset.order_by(sort)
         
         return queryset
+    
+    def get_context_data(self, **kwargs):
+        """Add billing-specific statistics to context."""
+        context = super().get_context_data(**kwargs)
+        context["segment"] = "records"
+        
+        # Get all user's records for statistics (before filtering)
+        all_records = BillingRecord.objects.filter(upload__user=self.request.user)
+        
+        # Get available uploads for filter dropdown
+        uploads = BillingDataUpload.objects.filter(
+            user=self.request.user,
+            status="COMPLETED"
+        ).order_by("-upload_date")
+        
+        if all_records.exists():
+            from datetime import datetime, timedelta
+            from django.utils import timezone
+            from decimal import Decimal
+            
+            # Calculate billing-specific statistics
+            today = timezone.now().date()
+            current_month_start = today.replace(day=1)
+            
+            # 1. Pending Payments - records without payment status or marked as unpaid
+            pending_payments = all_records.filter(
+                Q(payment_status__isnull=True) |
+                Q(payment_status__in=["", "pending", "unpaid", "overdue"])
+            ).count()
+            
+            # 2. This Month's Revenue
+            this_month_revenue = all_records.filter(
+                date__gte=current_month_start,
+                date__lte=today
+            ).aggregate(total=Sum("amount"))["total"] or 0
+            
+            # 3. High Value Invoices - invoices above average amount
+            avg_amount = all_records.aggregate(avg=Avg("amount"))["avg"] or 0
+            high_value_count = 0
+            if avg_amount > 0:
+                # Convert to Decimal for proper calculation
+                threshold = Decimal(str(avg_amount)) * Decimal("1.5")
+                high_value_count = all_records.filter(
+                    amount__gt=threshold
+                ).count()
+            
+            # 4. Recent Activity - records added in last 7 days
+            week_ago = timezone.now() - timedelta(days=7)
+            recent_activity = all_records.filter(
+                created_at__gte=week_ago
+            ).count()
+            
+            # Total statistics for the filtered queryset
+            filtered_records = self.get_queryset()
+            total_records = filtered_records.count()
+            total_revenue = filtered_records.aggregate(total=Sum("amount"))["total"] or 0
+            average_invoice = filtered_records.aggregate(avg=Avg("amount"))["avg"] or 0
+            unique_customers = filtered_records.values("customer_name").distinct().count()
+            
+            context.update({
+                "pending_payments": pending_payments,
+                "this_month_revenue": this_month_revenue,
+                "high_value_count": high_value_count,
+                "recent_activity": recent_activity,
+                "total_records": total_records,
+                "total_revenue": total_revenue,
+                "average_invoice": average_invoice,
+                "unique_customers": unique_customers,
+                "uploads": uploads,
+            })
+        else:
+            # Default values when no records exist
+            context.update({
+                "pending_payments": 0,
+                "this_month_revenue": 0,
+                "high_value_count": 0,
+                "recent_activity": 0,
+                "total_records": 0,
+                "total_revenue": 0,
+                "average_invoice": 0,
+                "unique_customers": 0,
+                "uploads": uploads,
+            })
+        
+        return context
 
 
 class RecordDetailView(LoginRequiredMixin, DetailView):
@@ -1083,6 +1240,7 @@ class ChatAnalyticsView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> Dict[str, Any]:
         """Add recent queries and data summary to context."""
         context = super().get_context_data(**kwargs)
+        context["segment"] = "chat"
         
         recent_queries = AnalyticsQuery.objects.filter(
             user=self.request.user
@@ -1450,7 +1608,7 @@ def ajax_chat_query(request: HttpRequest) -> JsonResponse:
         
         # Total revenue insight
         total_revenue = records.aggregate(total=Sum("amount"))["total"] or 0
-        analytics_insights.append(f"Total revenue: ${total_revenue:,.2f}")
+        analytics_insights.append(f"Total revenue: ₹{total_revenue:,.2f}")
         
         # Customer count
         customer_count = records.values("customer_name").distinct().count()
@@ -1469,7 +1627,7 @@ def ajax_chat_query(request: HttpRequest) -> JsonResponse:
             monthly_revenue = records.filter(
                 date__gte=timezone.now().date() - timedelta(days=30)
             ).aggregate(total=Sum("amount"))["total"] or 0
-            response_text += f"\n\nMonthly revenue (last 30 days): ${monthly_revenue:,.2f}"
+            response_text += f"\n\nMonthly revenue (last 30 days): ₹{monthly_revenue:,.2f}"
         
         if "customer" in query_text.lower():
             top_customers = records.values("customer_name").annotate(
@@ -1479,7 +1637,7 @@ def ajax_chat_query(request: HttpRequest) -> JsonResponse:
             if top_customers:
                 response_text += "\n\nTop 5 customers by revenue:\n"
                 for i, customer in enumerate(top_customers, 1):
-                    response_text += f"{i}. {customer['customer_name']}: ${customer['total']:,.2f}\n"
+                    response_text += f"{i}. {customer['customer_name']}: ₹{customer['total']:,.2f}\n"
         
         # Update query with response
         query_obj.response_text = response_text

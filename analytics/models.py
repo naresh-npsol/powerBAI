@@ -329,7 +329,7 @@ class BillingRecord(models.Model):
         ]
     
     def __str__(self) -> str:
-        return f"{self.invoice_number} - {self.customer_name} (${self.amount})"
+        return f"{self.invoice_number} - {self.customer_name} (₹{self.amount})"
     
     def get_absolute_url(self) -> str:
         return reverse("analytics:record_detail", kwargs={"pk": self.pk})
