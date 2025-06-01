@@ -12,6 +12,7 @@ import json
 import uuid
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse_lazy, reverse
@@ -24,7 +25,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
-from django.db.models import Q, Count, Sum, Avg, QuerySet
+from django.db.models import Q, Count, Sum, Avg, QuerySet, Max
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
@@ -52,14 +53,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             user=self.request.user
         ).order_by("-upload_date")[:5]
         
-        # Calculate statistics
-        total_records = BillingRecord.objects.filter(
-            upload__user=self.request.user
-        ).count()
+        # Calculate statistics - aggregate by invoice first
+        user_records = BillingRecord.objects.filter(upload__user=self.request.user)
+        total_records = user_records.count()
         
-        total_revenue = BillingRecord.objects.filter(
-            upload__user=self.request.user
-        ).aggregate(total=Sum("amount"))["total"] or 0
+        # Aggregate by invoice_number first, then sum
+        invoice_totals = user_records.values("invoice_number").annotate(
+            invoice_total=Sum("amount")
+        ).aggregate(total_revenue=Sum("invoice_total"))
+        
+        total_revenue = invoice_totals["total_revenue"] or 0
         
         # Get query count for AI queries
         query_count = AnalyticsQuery.objects.filter(
@@ -801,33 +804,61 @@ class AnalyticsView(LoginRequiredMixin, TemplateView):
             # Get recent records for display
             recent_records = records.order_by("-created_at")[:5]
             
-            # Calculate aggregated analytics
-            total_revenue = records.aggregate(total=Sum("amount"))["total"] or 0
-            total_customers = records.values("customer_name").distinct().count()
-            average_invoice = records.aggregate(avg=Avg("amount"))["avg"] or 0
-            total_records = records.count()
+            # Calculate aggregated analytics - aggregate by invoice first
+            invoice_totals = records.values("invoice_number").annotate(
+                invoice_total=Sum("amount"),
+                customer_name=Max("customer_name"),  # Get customer name for each invoice
+                invoice_date=Max("date")  # Use latest date for invoice
+            )
             
-            # Get top customers data for chart
-            top_customers = list(records.values("customer_name").annotate(
-                total_revenue=Sum("amount")
-            ).order_by("-total_revenue")[:10])
+            # Now calculate totals from invoice aggregates
+            total_revenue = invoice_totals.aggregate(
+                total=Sum("invoice_total")
+            )["total"] or 0
             
-            top_customers_labels = [c["customer_name"] for c in top_customers]
-            top_customers_data = [float(c["total_revenue"]) for c in top_customers]
+            total_customers = invoice_totals.values("customer_name").distinct().count()
             
-            # Payment status distribution
-            payment_status_data = list(records.values("payment_status").annotate(
-                count=Count("id")
-            ).order_by("payment_status"))
+            average_invoice = invoice_totals.aggregate(
+                avg=Avg("invoice_total")
+            )["avg"] or 0
+            
+            total_invoices = invoice_totals.count()
+            
+            # Get top customers data for chart - use Python aggregation to avoid Django limitation
+            from collections import defaultdict
+            
+            # First get all invoice totals with customer names
+            invoice_data = list(invoice_totals.values("customer_name", "invoice_total"))
+            
+            # Aggregate by customer using Python
+            customer_revenue = defaultdict(float)
+            for item in invoice_data:
+                customer_revenue[item["customer_name"]] += float(item["invoice_total"] or 0)
+            
+            # Sort and get top 10
+            top_customers_data = sorted(customer_revenue.items(), key=lambda x: x[1], reverse=True)[:10]
+            top_customers_labels = [item[0] for item in top_customers_data]
+            top_customers_amounts = [item[1] for item in top_customers_data]
+            
+            # Payment status distribution - use latest status per invoice
+            latest_status_per_invoice = records.values("invoice_number").annotate(
+                latest_status=Max("payment_status")
+            )
+            
+            payment_status_data = list(
+                latest_status_per_invoice.values("latest_status").annotate(
+                    count=Count("invoice_number")
+                ).order_by("latest_status")
+            )
             
             payment_status_labels = []
             payment_status_counts = []
             for item in payment_status_data:
-                status = item["payment_status"] or "Unknown"
+                status = item["latest_status"] or "Unknown"
                 payment_status_labels.append(status)
                 payment_status_counts.append(item["count"])
             
-            # Monthly revenue trend (last 6 months)
+            # Monthly revenue trend (last 6 months) - aggregate by invoice first
             from datetime import datetime, timedelta
             from django.utils import timezone
             
@@ -838,10 +869,15 @@ class AnalyticsView(LoginRequiredMixin, TemplateView):
                 month_start = (timezone.now().date().replace(day=1) - timedelta(days=i*30))
                 month_end = month_start + timedelta(days=30)
                 
-                monthly_rev = records.filter(
+                # Get invoice totals for the month
+                monthly_invoices = records.filter(
                     date__gte=month_start,
                     date__lt=month_end
-                ).aggregate(total=Sum("amount"))["total"] or 0
+                ).values("invoice_number").annotate(
+                    invoice_total=Sum("amount")
+                ).aggregate(total=Sum("invoice_total"))
+                
+                monthly_rev = monthly_invoices["total"] or 0
                 
                 monthly_revenue_labels.append(month_start.strftime("%b %Y"))
                 monthly_revenue_data.append(float(monthly_rev))
@@ -851,21 +887,21 @@ class AnalyticsView(LoginRequiredMixin, TemplateView):
                 "total_revenue": float(total_revenue),
                 "total_customers": total_customers,
                 "average_invoice": float(average_invoice),
-                "total_records": total_records,
+                "total_records": total_invoices,  # Changed to total_invoices instead of record count
                 # Chart data as JSON strings for JavaScript
                 "monthly_revenue_labels": json.dumps(monthly_revenue_labels),
                 "monthly_revenue_data": json.dumps(monthly_revenue_data),
                 "payment_status_labels": json.dumps(payment_status_labels),
                 "payment_status_data": json.dumps(payment_status_counts),
                 "top_customers_labels": json.dumps(top_customers_labels),
-                "top_customers_data": json.dumps(top_customers_data),
+                "top_customers_data": json.dumps(top_customers_amounts),
             }
             
             context.update({
-                "analytics_data": analytics_data,  # Changed from "analytics" to "analytics_data"
+                "analytics_data": analytics_data,
                 "has_data": True,
                 "recent_records": recent_records,
-                "total_records": total_records,
+                "total_records": total_invoices,  # Changed to show invoice count
                 "date_range": self.request.GET.get("date_range", "30"),
             })
         else:
@@ -1045,6 +1081,35 @@ class BillingRecordListView(LoginRequiredMixin, ListView):
         if upload_filter:
             queryset = queryset.filter(upload_id=upload_filter)
         
+        # Payment status filter (for pending payments card)
+        payment_status_filter = self.request.GET.get("payment_status")
+        if payment_status_filter == "pending":
+            queryset = queryset.filter(
+                Q(payment_status__isnull=True) |
+                Q(payment_status__in=["", "pending", "unpaid", "overdue"])
+            )
+        
+        # High value filter (for high value bills card)
+        high_value_filter = self.request.GET.get("high_value")
+        if high_value_filter == "true":
+            # Calculate average invoice amount
+            invoice_totals = BillingRecord.objects.filter(
+                upload__user=self.request.user
+            ).values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            )
+            avg_amount = invoice_totals.aggregate(avg=Avg("invoice_total"))["avg"] or 0
+            
+            if avg_amount > 0:
+                threshold = Decimal(str(avg_amount)) * Decimal("1.5")
+                
+                # Get invoice numbers that exceed the threshold
+                high_value_invoices = invoice_totals.filter(
+                    invoice_total__gt=threshold
+                ).values_list("invoice_number", flat=True)
+                
+                queryset = queryset.filter(invoice_number__in=high_value_invoices)
+        
         # Date range filters
         date_from = self.request.GET.get("date_from")
         date_to = self.request.GET.get("date_to")
@@ -1085,56 +1150,87 @@ class BillingRecordListView(LoginRequiredMixin, ListView):
             status="COMPLETED"
         ).order_by("-upload_date")
         
+        # Add date values for clickable cards
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        
+        today = timezone.now().date()
+        current_month_start = today.replace(day=1)
+        week_ago = today - timedelta(days=7)
+        
+        context.update({
+            "today": today.strftime("%Y-%m-%d"),
+            "current_month_start": current_month_start.strftime("%Y-%m-%d"),
+            "week_ago": week_ago.strftime("%Y-%m-%d"),
+        })
+        
         if all_records.exists():
-            from datetime import datetime, timedelta
-            from django.utils import timezone
-            from decimal import Decimal
-            
-            # Calculate billing-specific statistics
+            # Calculate billing-specific statistics - aggregate by invoice first
             today = timezone.now().date()
             current_month_start = today.replace(day=1)
             
-            # 1. Pending Payments - records without payment status or marked as unpaid
-            pending_payments = all_records.filter(
+            # 1. Pending Payments - count unique invoices with pending status
+            pending_invoices = all_records.filter(
                 Q(payment_status__isnull=True) |
                 Q(payment_status__in=["", "pending", "unpaid", "overdue"])
-            ).count()
+            ).values("invoice_number").distinct().count()
             
-            # 2. This Month's Revenue
-            this_month_revenue = all_records.filter(
+            # 2. This Month's Revenue - aggregate by invoice first
+            this_month_invoices = all_records.filter(
                 date__gte=current_month_start,
                 date__lte=today
-            ).aggregate(total=Sum("amount"))["total"] or 0
+            ).values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            ).aggregate(total=Sum("invoice_total"))
+            
+            this_month_revenue = this_month_invoices["total"] or 0
             
             # 3. High Value Invoices - invoices above average amount
-            avg_amount = all_records.aggregate(avg=Avg("amount"))["avg"] or 0
+            invoice_totals = all_records.values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            )
+            avg_invoice_amount = invoice_totals.aggregate(avg=Avg("invoice_total"))["avg"] or 0
+            
             high_value_count = 0
-            if avg_amount > 0:
-                # Convert to Decimal for proper calculation
-                threshold = Decimal(str(avg_amount)) * Decimal("1.5")
-                high_value_count = all_records.filter(
-                    amount__gt=threshold
+            if avg_invoice_amount > 0:
+                threshold = Decimal(str(avg_invoice_amount)) * Decimal("1.5")
+                high_value_count = invoice_totals.filter(
+                    invoice_total__gt=threshold
                 ).count()
             
-            # 4. Recent Activity - records added in last 7 days
+            # 4. Recent Activity - invoice count added in last 7 days
             week_ago = timezone.now() - timedelta(days=7)
             recent_activity = all_records.filter(
                 created_at__gte=week_ago
-            ).count()
+            ).values("invoice_number").distinct().count()
             
             # Total statistics for the filtered queryset
             filtered_records = self.get_queryset()
             total_records = filtered_records.count()
-            total_revenue = filtered_records.aggregate(total=Sum("amount"))["total"] or 0
-            average_invoice = filtered_records.aggregate(avg=Avg("amount"))["avg"] or 0
+            
+            # For filtered results, also aggregate by invoice
+            filtered_invoice_totals = filtered_records.values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            )
+            
+            total_revenue = filtered_invoice_totals.aggregate(
+                total=Sum("invoice_total")
+            )["total"] or 0
+            
+            average_invoice = filtered_invoice_totals.aggregate(
+                avg=Avg("invoice_total")
+            )["avg"] or 0
+            
             unique_customers = filtered_records.values("customer_name").distinct().count()
+            unique_invoices = filtered_invoice_totals.count()
             
             context.update({
-                "pending_payments": pending_payments,
+                "pending_payments": pending_invoices,  # Count of pending invoices
                 "this_month_revenue": this_month_revenue,
                 "high_value_count": high_value_count,
                 "recent_activity": recent_activity,
-                "total_records": total_records,
+                "total_records": total_records,  # Total record count (rows)
+                "total_invoices": unique_invoices,  # Total unique invoices
                 "total_revenue": total_revenue,
                 "average_invoice": average_invoice,
                 "unique_customers": unique_customers,
@@ -1148,6 +1244,7 @@ class BillingRecordListView(LoginRequiredMixin, ListView):
                 "high_value_count": 0,
                 "recent_activity": 0,
                 "total_records": 0,
+                "total_invoices": 0,
                 "total_revenue": 0,
                 "average_invoice": 0,
                 "unique_customers": 0,
@@ -1603,41 +1700,61 @@ def ajax_chat_query(request: HttpRequest) -> JsonResponse:
             created_at=timezone.now()
         )
         
-        # Basic analytics response (simplified for now)
+        # Basic analytics response - aggregate by invoice first
         analytics_insights = []
         
+        # Aggregate by invoice
+        invoice_aggregates = records.values("invoice_number").annotate(
+            invoice_total=Sum("amount")
+        )
+        
         # Total revenue insight
-        total_revenue = records.aggregate(total=Sum("amount"))["total"] or 0
+        total_revenue = invoice_aggregates.aggregate(total=Sum("invoice_total"))["total"] or 0
         analytics_insights.append(f"Total revenue: ₹{total_revenue:,.2f}")
         
-        # Customer count
+        # Invoice and customer count
+        invoice_count = invoice_aggregates.count()
         customer_count = records.values("customer_name").distinct().count()
+        analytics_insights.append(f"Total invoices: {invoice_count}")
         analytics_insights.append(f"Total customers: {customer_count}")
         
-        # Recent records
+        # Recent invoices
         recent_count = records.filter(
             created_at__gte=timezone.now() - timedelta(days=30)
-        ).count()
-        analytics_insights.append(f"Records from last 30 days: {recent_count}")
+        ).values("invoice_number").distinct().count()
+        analytics_insights.append(f"New invoices from last 30 days: {recent_count}")
         
         # Generate response based on query
         response_text = f"Based on your billing data analysis:\n\n" + "\n".join(analytics_insights)
         
         if "revenue" in query_text.lower():
-            monthly_revenue = records.filter(
+            monthly_invoices = records.filter(
                 date__gte=timezone.now().date() - timedelta(days=30)
-            ).aggregate(total=Sum("amount"))["total"] or 0
+            ).values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            ).aggregate(total=Sum("invoice_total"))
+            
+            monthly_revenue = monthly_invoices["total"] or 0
             response_text += f"\n\nMonthly revenue (last 30 days): ₹{monthly_revenue:,.2f}"
         
         if "customer" in query_text.lower():
-            top_customers = records.values("customer_name").annotate(
-                total=Sum("amount")
-            ).order_by("-total")[:5]
+            # Use Python aggregation to avoid Django limitation
+            from collections import defaultdict
+            
+            invoice_data = list(records.values("customer_name", "invoice_number").annotate(
+                invoice_total=Sum("amount")
+            ).values("customer_name", "invoice_total"))
+            
+            customer_revenue = defaultdict(float)
+            for item in invoice_data:
+                customer_revenue[item["customer_name"]] += float(item["invoice_total"] or 0)
+            
+            top_customers = sorted(customer_revenue.items(), key=lambda x: x[1], reverse=True)[:5]
             
             if top_customers:
                 response_text += "\n\nTop 5 customers by revenue:\n"
-                for i, customer in enumerate(top_customers, 1):
-                    response_text += f"{i}. {customer['customer_name']}: ₹{customer['total']:,.2f}\n"
+                for i, (customer_name, total) in enumerate(top_customers, 1):
+                    response_text += f"{i}. {customer_name}: ₹{total:,.2f}\n"
         
         # Update query with response
         query_obj.response_text = response_text
@@ -1713,7 +1830,7 @@ def ajax_analytics_data(request: HttpRequest) -> JsonResponse:
                 }
             })
         
-        # Monthly revenue data (last 6 months)
+        # Monthly revenue data (last 6 months) - aggregate by invoice first
         monthly_data = []
         monthly_labels = []
         
@@ -1721,35 +1838,58 @@ def ajax_analytics_data(request: HttpRequest) -> JsonResponse:
             month_start = (timezone.now().date().replace(day=1) - timedelta(days=i*30))
             month_end = month_start + timedelta(days=30)
             
-            monthly_revenue = records.filter(
+            # Aggregate invoices for the month
+            monthly_invoices = records.filter(
                 date__gte=month_start,
                 date__lt=month_end
-            ).aggregate(total=Sum("amount"))["total"] or 0
+            ).values("invoice_number").annotate(
+                invoice_total=Sum("amount")
+            ).aggregate(total=Sum("invoice_total"))
             
+            monthly_revenue = monthly_invoices["total"] or 0
             monthly_data.append(float(monthly_revenue))
             monthly_labels.append(month_start.strftime("%b %Y"))
         
-        # Payment status distribution
-        status_data = records.values("payment_status").annotate(
-            count=Count("id")
-        ).order_by("payment_status")
+        # Payment status distribution - use latest status per invoice
+        latest_status_per_invoice = records.values("invoice_number").annotate(
+            latest_status=Max("payment_status")
+        )
+        
+        status_data = latest_status_per_invoice.values("latest_status").annotate(
+            count=Count("invoice_number")
+        ).order_by("latest_status")
         
         status_labels = []
         status_counts = []
         for item in status_data:
-            status_labels.append(item["payment_status"] or "Unknown")
+            status_labels.append(item["latest_status"] or "Unknown")
             status_counts.append(item["count"])
         
-        # Top customers by revenue
-        top_customers = records.values("customer_name").annotate(
-            total_revenue=Sum("amount")
-        ).order_by("-total_revenue")[:10]
+        # Top customers by revenue - use Python aggregation to avoid Django limitation
+        from collections import defaultdict
         
-        customer_labels = []
-        customer_revenue = []
-        for customer in top_customers:
-            customer_labels.append(customer["customer_name"])
-            customer_revenue.append(float(customer["total_revenue"]))
+        invoice_data = list(records.values("invoice_number").annotate(
+            invoice_total=Sum("amount"),
+            customer_name=Max("customer_name")
+        ).values("customer_name", "invoice_total"))
+        
+        customer_revenue = defaultdict(float)
+        for item in invoice_data:
+            customer_revenue[item["customer_name"]] += float(item["invoice_total"] or 0)
+        
+        top_customers_data = sorted(customer_revenue.items(), key=lambda x: x[1], reverse=True)[:10]
+        customer_labels = [item[0] for item in top_customers_data]
+        customer_amounts = [item[1] for item in top_customers_data]
+        
+        # Summary calculations - aggregate by invoice first
+        invoice_aggregates = records.values("invoice_number").annotate(
+            invoice_total=Sum("amount")
+        )
+        
+        total_revenue = invoice_aggregates.aggregate(total=Sum("invoice_total"))["total"] or 0
+        total_invoices = invoice_aggregates.count()
+        total_customers = records.values("customer_name").distinct().count()
+        avg_invoice = invoice_aggregates.aggregate(avg=Avg("invoice_total"))["avg"] or 0
         
         return JsonResponse({
             "success": True,
@@ -1764,14 +1904,14 @@ def ajax_analytics_data(request: HttpRequest) -> JsonResponse:
                 },
                 "top_customers": {
                     "labels": customer_labels,
-                    "data": customer_revenue
+                    "data": customer_amounts
                 }
             },
             "summary": {
-                "total_revenue": float(records.aggregate(total=Sum("amount"))["total"] or 0),
-                "total_records": records.count(),
-                "total_customers": records.values("customer_name").distinct().count(),
-                "avg_invoice": float(records.aggregate(avg=Avg("amount"))["avg"] or 0),
+                "total_revenue": float(total_revenue),
+                "total_records": total_invoices,  # Changed to show invoice count
+                "total_customers": total_customers,
+                "avg_invoice": float(avg_invoice),
             }
         })
         
