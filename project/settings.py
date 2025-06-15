@@ -62,20 +62,16 @@ if not DEBUG and cloud_platform in ['DIGITAL_OCEAN', 'RAILWAY']:
     with open(FIREBASE_CRED_PATH, 'w') as f:
         json.dump(decoded_json, f, indent=4)
 
-if DEBUG:
-    ALLOWED_HOSTS = []
-
-else:
-    ALLOWED_HOSTS = env('ALLOWED_HOSTS').replace(' ', '').split(',')
-
-if not DEBUG:
-    CORS_ALLOWED_ORIGINS = env('ALLOWED_CORS').replace(' ', '').split(',')
-
-    CORS_ORIGIN_WHITELIST = env('ALLOWED_CORS').replace(' ', '').split(',')
-    CSRF_TRUSTED_ORIGINS = env('ALLOWED_CORS').replace(' ', '').split(',')
+ALLOWED_HOSTS = env('ALLOWED_HOSTS').replace(' ', '').split(',')
 
 
-PROJECT_TITLE = 'Saas Django demo' # name of the project
+CORS_ALLOWED_ORIGINS = env('ALLOWED_CORS').replace(' ', '').split(',')
+
+CORS_ORIGIN_WHITELIST = env('ALLOWED_CORS').replace(' ', '').split(',')
+CSRF_TRUSTED_ORIGINS = env('ALLOWED_CORS').replace(' ', '').split(',')
+
+
+PROJECT_TITLE = 'BillGPT' # name of the project
 
 if DEBUG:
     DOMAIN = "http://localhost:8000"
