@@ -106,7 +106,6 @@ INSTALLED_APPS = [
     'tailwind',
     'corsheaders',
     'payments',
-    'django_browser_reload',
 
     'styling',
 
@@ -189,7 +188,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     'whitenoise.middleware.WhiteNoiseMiddleware', #whitenoise
-    'django_browser_reload.middleware.BrowserReloadMiddleware', # reload
     'django_ratelimit.middleware.RatelimitMiddleware',
 ]
 
