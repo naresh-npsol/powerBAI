@@ -363,6 +363,10 @@ else:
     GS_QUERYSTRING_AUTH = True  # Optional: Enable querystring authentication
     GS_FILE_OVERWRITE = False # prevent overwriting
 
+# File Upload Configuration
+FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
 
 # Unfold
 ######################################################################

@@ -96,50 +96,86 @@ class FileUploadView(LoginRequiredMixin, CreateView):
     
     def form_valid(self, form):
         """Process the uploaded file and set the user."""
-        form.instance.user = self.request.user
-        
-        # Set file metadata before saving
-        uploaded_file = form.cleaned_data["file"]
-        form.instance.original_filename = uploaded_file.name
-        form.instance.file_size = uploaded_file.size
-        
-        response = super().form_valid(form)
-        
-        # Process file headers and sample data
         try:
-            import pandas as pd
-            import os
+            form.instance.user = self.request.user
             
-            file_path = form.instance.file.path
+            # Set file metadata before saving
+            uploaded_file = form.cleaned_data["file"]
+            form.instance.original_filename = uploaded_file.name
+            form.instance.file_size = uploaded_file.size
             
-            # Read file to get basic info
-            if file_path.endswith(".csv"):
-                df = pd.read_csv(file_path, nrows=0)  # Just get headers
-                total_rows = sum(1 for line in open(file_path)) - 1  # Subtract header
-            elif file_path.endswith((".xlsx", ".xls")):
-                df = pd.read_excel(file_path, nrows=0)  # Just get headers
-                full_df = pd.read_excel(file_path)
-                total_rows = len(full_df)
-            else:
-                raise ValueError("Unsupported file format")
+            # Validate file size
+            if uploaded_file.size > 50 * 1024 * 1024:  # 50MB
+                form.add_error('file', 'File size must be less than 50MB.')
+                return self.form_invalid(form)
             
-            headers = list(df.columns)
+            # Validate file extension
+            allowed_extensions = ['csv', 'xlsx', 'xls']
+            file_extension = uploaded_file.name.split('.')[-1].lower()
+            if file_extension not in allowed_extensions:
+                form.add_error('file', f'File type "{file_extension}" is not supported. Please upload: {", ".join(allowed_extensions)}')
+                return self.form_invalid(form)
             
-            # Update the upload with file info
-            form.instance.total_rows = total_rows
-            form.instance.save()
+            response = super().form_valid(form)
             
-            messages.success(
-                self.request, 
-                f"File uploaded successfully! Found {len(headers)} columns and {total_rows} rows."
-            )
+            # Process file headers and sample data
+            try:
+                import pandas as pd
+                import os
+                
+                file_path = form.instance.file.path
+                
+                # Read file to get basic info
+                if file_path.endswith(".csv"):
+                    df = pd.read_csv(file_path, nrows=0)  # Just get headers
+                    total_rows = sum(1 for line in open(file_path)) - 1  # Subtract header
+                elif file_path.endswith((".xlsx", ".xls")):
+                    df = pd.read_excel(file_path, nrows=0)  # Just get headers
+                    full_df = pd.read_excel(file_path)
+                    total_rows = len(full_df)
+                else:
+                    raise ValueError("Unsupported file format")
+                
+                headers = list(df.columns)
+                
+                # Update the upload with file info
+                form.instance.total_rows = total_rows
+                form.instance.save()
+                
+                messages.success(
+                    self.request, 
+                    f"File uploaded successfully! Found {len(headers)} columns and {total_rows} rows."
+                )
+            except Exception as e:
+                # Log the error for debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error processing file {uploaded_file.name}: {str(e)}")
+                
+                messages.error(
+                    self.request, 
+                    f"Error processing file: {str(e)}"
+                )
+            
+            return response
+            
         except Exception as e:
-            messages.error(
-                self.request, 
-                f"Error processing file: {str(e)}"
-            )
+            # Log the error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in file upload: {str(e)}")
+            
+            form.add_error(None, f'Upload failed: {str(e)}')
+            return self.form_invalid(form)
+    
+    def form_invalid(self, form):
+        """Handle form validation errors."""
+        # Log form errors for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Form validation errors: {form.errors}")
         
-        return response
+        return super().form_invalid(form)
 
 
 class UploadListView(LoginRequiredMixin, ListView):

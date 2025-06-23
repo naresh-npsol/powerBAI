@@ -369,19 +369,36 @@ document.getElementById('uploadForm').addEventListener('submit', function(e) {
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('description', document.getElementById('description').value);
-    formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+    
+    // Get CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    if (!csrfToken) {
+        alert('CSRF token not found. Please refresh the page and try again.');
+        return;
+    }
+    formData.append('csrfmiddlewaretoken', csrfToken);
     
     showProgressModal();
     
     fetch('', {
         method: 'POST',
-        body: formData
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrfToken
+        }
     })
     .then(response => {
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
         if (response.ok) {
             return response.text();
         }
-        throw new Error('Upload failed');
+        // Get more specific error information
+        return response.text().then(text => {
+            console.log('Error response text:', text);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}. ${text}`);
+        });
     })
     .then(data => {
         // Check if response contains redirect
@@ -394,7 +411,25 @@ document.getElementById('uploadForm').addEventListener('submit', function(e) {
     })
     .catch(error => {
         hideProgressModal();
-        alert('Upload failed: ' + error.message);
+        console.error('Upload error:', error);
+        
+        // Provide more specific error messages
+        let errorMessage = 'Upload failed';
+        if (error.message.includes('413')) {
+            errorMessage = 'File too large. Please ensure the file is under 50MB.';
+        } else if (error.message.includes('400')) {
+            errorMessage = 'Invalid file format. Please upload a CSV or Excel file.';
+        } else if (error.message.includes('403')) {
+            errorMessage = 'Access denied. Please log in again.';
+        } else if (error.message.includes('500')) {
+            errorMessage = 'Server error. Please try again later.';
+        } else if (error.message.includes('NetworkError')) {
+            errorMessage = 'Network error. Please check your connection and try again.';
+        } else {
+            errorMessage = 'Upload failed: ' + error.message;
+        }
+        
+        alert(errorMessage);
     });
 });
 
